@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Attendance System</title>
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Face API CDN -->
+  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
+
+  <!-- MODULE SCRIPTS -->
+  <script type="module" src="supabase.js"></script>
+  <script type="module" src="auth.js"></script>
+  <script type="module" src="face.js"></script>
+  <script type="module" src="fingerprint.js"></script>
+</head>
+
+<body>
+    <h2>Face + Fingerprint Attendance</h2>
+    
+    <!-- AUTH SECTION -->
+    <div id="authSection">
+        <h3>Login / Signup</h3>
+        <input type="email" id="email" placeholder="Email"><br><br>
+        <input type="password" id="password" placeholder="Password"><br><br>
+
+        <button onclick="login()">Login</button>
+        <button onclick="signUp()">Sign Up</button>
+    </div>
+
+    <!-- APP SECTION -->
+    <div id="appSection" style="display:none;">
+      <button onclick="logout()">Logout</button>
+      <hr>
+    
+      <input type="text" id="name" placeholder="Enter Name">
+      <button id="registerBtn">Register Face</button>
+    
+      <br><br>
+    
+      <video id="video" width="400" autoplay muted></video>
+      <br>
+      <button id="attendanceBtn">Mark Attendance</button>
+    </div>
+</body>
+</html>
