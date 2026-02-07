@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8">
   <title>Attendance System</title>
   <link rel="stylesheet" href="style.css">
 
   <!-- Face API CDN -->
-  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
+  <script defer src="https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js"></script>
 
   <!-- MODULE SCRIPTS -->
   <script type="module" src="supabase.js"></script>
@@ -15,31 +16,67 @@
 </head>
 
 <body>
-    <h2>Face + Fingerprint Attendance</h2>
-    
-    <!-- AUTH SECTION -->
-    <div id="authSection">
-        <h3>Login / Signup</h3>
-        <input type="email" id="email" placeholder="Email"><br><br>
-        <input type="password" id="password" placeholder="Password"><br><br>
+  <h2>Face + Fingerprint Attendance System</h2>
 
-        <button onclick="login()">Login</button>
-        <button onclick="signUp()">Sign Up</button>
-    </div>
+  <!-- AUTH SECTION -->
+  <div id="authSection">
+    <h3>Login / Signup</h3>
+    <input type="email" id="email" placeholder="Email"><br><br>
+    <input type="password" id="password" placeholder="Password"><br><br>
 
-    <!-- APP SECTION -->
-    <div id="appSection" style="display:none;">
-      <button onclick="logout()">Logout</button>
-      <hr>
+    <button id="loginBtn">Login</button>
+    <button id="signupBtn">Sign Up</button>
+  </div>
+
+  <!-- APP SECTION -->
+  <div id="appSection" style="display:none;">
+    <button id="logoutBtn">Logout</button>
+    <hr>
+
+    <!-- Registration Inputs -->
+    <h3>Register Face</h3>
+    <input id="studentId" placeholder="Student ID" /><br><br>
+    <input id="name" placeholder="Full Name" /><br><br>
+    <input id="major" placeholder="Major" /><br><br>
+    <button id="registerBtn">Register Face</button>
     
-      <input type="text" id="name" placeholder="Enter Name">
-      <button id="registerBtn">Register Face</button>
-    
-      <br><br>
-    
-      <video id="video" width="400" autoplay muted></video>
-      <br>
-      <button id="attendanceBtn">Mark Attendance</button>
-    </div>
+    <!-- Message / Profile -->
+    <div id="reg-message" class="info" style="margin-top:10px;"></div>
+    <div id="profile" style="margin-top:20px;"></div>
+
+    <hr>
+
+    <!-- Video for Face Capture -->
+    <video id="video" width="400" autoplay muted style="border:1px solid #000;"></video>
+    <br>
+    <button id="attendanceBtn">Mark Attendance</button>
+
+    <hr>
+
+    <!-- Attendance Dashboard -->
+    <h3>Attendance Dashboard</h3>
+    <table border="1" cellspacing="0" cellpadding="5">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody id="dashboard-body"></tbody>
+    </table>
+  </div>
+
+  <script>
+    // Attach auth buttons after DOM loads
+    document.addEventListener("DOMContentLoaded", () => {
+      const loginBtn = document.getElementById("loginBtn");
+      const signupBtn = document.getElementById("signupBtn");
+      const logoutBtn = document.getElementById("logoutBtn");
+
+      if (loginBtn) loginBtn.addEventListener("click", login);
+      if (signupBtn) signupBtn.addEventListener("click", signUp);
+      if (logoutBtn) logoutBtn.addEventListener("click", logout);
+    });
+  </script>
 </body>
 </html>
