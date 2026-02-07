@@ -1,13 +1,21 @@
 import { supabase } from "./supabase.js";
 
-const video = document.getElementById("video");
-const registerBtn = document.getElementById("registerBtn");
-const attendanceBtn = document.getElementById("attendanceBtn");
+// DOM ELEMENTS
+let video;
+let registerBtn;
+let attendanceBtn;
 
+// GLOBAL STATE
 let modelsLoaded = false;
 let registeredUsers = [];
 
-// Start camera
+// FACE DETECTOR OPTIONS
+const faceDetectorOptions = new faceapi.TinyFaceDetectorOptions({
+  inputSize: 224,
+  scoreThreshold: 0.5,
+});
+
+//START CAMERA
 async function startCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -15,187 +23,226 @@ async function startCamera() {
     await video.play();
   } catch (err) {
     console.error("Camera error:", err);
-    alert("Cannot access camera. Check permissions.");
+    alert("Cannot access camera.");
   }
 }
 
-// Load face-api models
+// LOAD MODELS
 async function loadModels() {
   try {
-    const MODEL_URL =
-      "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
+    const MODEL_URL = "https://justadudewhohacks.github.io/face-api.js/models";
 
     await Promise.all([
-      faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
       faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
     ]);
 
-    console.log("Face-api models loaded");
     modelsLoaded = true;
-
-    // Load registered users from Supabase
     await loadRegisteredUsers();
+    console.log("✅ Face-api models loaded");
   } catch (err) {
-    console.error("Failed to load models:", err);
+    console.error("❌ Failed to load models:", err);
   }
 }
 
-// Stop video stream
-function stopStream(videoElement) {
-  if (videoElement.srcObject) {
-    videoElement.srcObject.getTracks().forEach((track) => track.stop());
-    videoElement.srcObject = null;
-  }
-}
-
-// Show message helper
-function showMessage(elementId, message, type = "info") {
-  const el = document.getElementById(elementId);
-  if (el) {
-    el.textContent = message;
-    el.className = type; // you can add CSS styling for info/success/error
-  }
-}
-
-// Load registered users from Supabase
+// LOAD REGISTERED USERS + DESCRIPTORS
 async function loadRegisteredUsers() {
-  const { data, error } = await supabase.from("users").select("*");
-  if (error) {
-    console.error("Error fetching users:", error);
-  } else {
-    registeredUsers = data.map((u) => ({
-      id: u.id,
-      name: u.name,
-      faceDescriptor: u.face_descriptor,
-    }));
-    console.log("Registered users loaded:", registeredUsers.length);
-  }
+  const { data, error } = await supabase
+    .from("users")
+    .select("id, student_id, name, major, face_images(descriptor)");
+
+  if (error) return console.error(error);
+
+  registeredUsers = data.map((u) => ({
+    id: u.id,
+    studentId: u.student_id,
+    name: u.name,
+    major: u.major,
+    descriptors: u.face_images.map(
+      (f) => new Float32Array(f.descriptor)
+    ),
+  }));
 }
 
-// Register face
+// DUPLICATE FACE CHECK
+function isDuplicateFace(descriptor, threshold = 0.5) {
+  if (!registeredUsers.length) return false;
+
+  const matcher = new faceapi.FaceMatcher(
+    registeredUsers.map(
+      (u) => new faceapi.LabeledFaceDescriptors(u.studentId, u.descriptors)
+    ),
+    threshold
+  );
+
+  return matcher.findBestMatch(descriptor).label !== "unknown";
+}
+
+// REGISTER FACE
 async function registerFace() {
   if (!modelsLoaded) {
-    alert("Models are still loading. Please wait...");
+    alert("Models are still loading");
     return;
   }
 
-  const name = document.getElementById("name").value.trim();
-  if (!name) return alert("Please enter a name");
+  // Safe DOM check
+  const studentIdEl = document.getElementById("studentId");
+  const nameEl = document.getElementById("name");
+  const majorEl = document.getElementById("major");
 
-  if (!video.srcObject) return alert("Camera not running");
-
-  try {
-    const detection = await faceapi
-      .detectSingleFace(video)
-      .withFaceLandmarks()
-      .withFaceDescriptor();
-
-    if (!detection) {
-      alert("No face detected. Please try again.");
-      return;
-    }
-
-    // Optional: draw on canvas
-    const canvas = document.getElementById("reg-canvas");
-    if (canvas) {
-      const displaySize = { width: video.videoWidth, height: video.videoHeight };
-      faceapi.matchDimensions(canvas, displaySize);
-      const resizedDetection = faceapi.resizeResults(detection, displaySize);
-      faceapi.draw.drawDetections(canvas, resizedDetection);
-      faceapi.draw.drawFaceLandmarks(canvas, resizedDetection);
-    }
-
-    // Save user to Supabase
-    const { data, error } = await supabase.from("users").insert({
-      name,
-      face_descriptor: Array.from(detection.descriptor),
-    });
-
-    if (error) {
-      console.error(error);
-      alert("Failed to register face. Check console.");
-      return;
-    }
-
-    alert("Face registered successfully ✔");
-    registeredUsers.push({ id: data[0].id, name, faceDescriptor: Array.from(detection.descriptor) });
-
-  } catch (err) {
-    console.error("Error during face registration:", err);
-    alert("Error capturing face. Check console.");
+  if (!studentIdEl || !nameEl || !majorEl) {
+    alert("Registration form not found. Check HTML IDs.");
+    console.error("Missing inputs", { studentIdEl, nameEl, majorEl });
+    return;
   }
+
+  const studentId = studentIdEl.value.trim();
+  const name = nameEl.value.trim();
+  const major = majorEl.value.trim();
+
+  if (!studentId || !name || !major) {
+    alert("Please complete all fields");
+    return;
+  }
+
+  // Detect face
+  const detection = await faceapi
+    .detectSingleFace(video, faceDetectorOptions)
+    .withFaceLandmarks()
+    .withFaceDescriptor();
+
+  if (!detection) return alert("No face detected");
+
+  // Duplicate prevention
+  if (isDuplicateFace(detection.descriptor)) {
+    alert("This face is already registered");
+    return;
+  }
+
+  // Insert user
+  const { data: user, error } = await supabase
+    .from("users")
+    .insert({ student_id: studentId, name, major })
+    .select()
+    .single();
+
+  if (error) return alert(error.message);
+
+  // Insert face descriptor
+  await supabase.from("face_images").insert({
+    user_id: user.id,
+    descriptor: Array.from(detection.descriptor),
+  });
+
+  // Show profile
+  showProfile(user);
+
+  // Refresh registered users
+  await loadRegisteredUsers();
+
+  alert("✅ Face registered successfully");
 }
 
-// Mark attendance
+// SHOW STUDENT PROFILE
+function showProfile(user) {
+  const div = document.getElementById("profile");
+  if (!div) return;
+
+  div.innerHTML = `
+    <h3>Student Profile</h3>
+    <p><b>ID:</b> ${user.student_id}</p>
+    <p><b>Name:</b> ${user.name}</p>
+    <p><b>Major:</b> ${user.major}</p>
+  `;
+}
+
+// MARK ATTENDANCE
 async function markAttendance() {
   if (!modelsLoaded) {
-    showMessage("reg-message", "Models are still loading. Please wait...", "info");
+    showMessage("reg-message", "Models still loading", "info");
     return;
   }
 
-  if (!registeredUsers.length) {
-    showMessage("reg-message", "No registered users found.", "error");
-    return;
-  }
+  const detection = await faceapi
+    .detectSingleFace(video, faceDetectorOptions)
+    .withFaceLandmarks()
+    .withFaceDescriptor();
 
-  try {
-    const detection = await faceapi
-      .detectSingleFace(video)
-      .withFaceLandmarks()
-      .withFaceDescriptor();
+  if (!detection) return alert("No face detected");
 
-    if (!detection) {
-      showMessage("reg-message", "No face detected. Please try again.", "error");
-      return;
-    }
+  // Match face
+  const matcher = new faceapi.FaceMatcher(
+    registeredUsers.map(
+      (u) => new faceapi.LabeledFaceDescriptors(u.studentId, u.descriptors)
+    ),
+    0.6
+  );
 
-    // Compare face descriptor with registered users
-    const faceMatcher = new faceapi.FaceMatcher(
-      registeredUsers.map(
-        (u) =>
-          new faceapi.LabeledFaceDescriptors(
-            u.name,
-            [new Float32Array(u.faceDescriptor)]
-          )
-      ),
-      0.6
-    );
+  const match = matcher.findBestMatch(detection.descriptor);
+  if (match.label === "unknown") return alert("Face not recognized");
 
-    const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
+  const user = registeredUsers.find((u) => u.studentId === match.label);
+  if (!user) return;
 
-    if (bestMatch.label === "unknown") {
-      showMessage("reg-message", "Face not recognized.", "error");
-      return;
-    }
+  // Insert attendance (DB enforces 1/day)
+  const { error } = await supabase.from("attendance").insert({
+    user_id: user.id,
+  });
 
-    const user = registeredUsers.find((u) => u.name === bestMatch.label);
-
-    // Save attendance to Supabase
-    const { data, error } = await supabase.from("attendance").insert({
-      user_id: user.id,
-      timestamp: new Date().toISOString(),
-    });
-
-    if (error) {
+  if (error) {
+    if (error.code === "23505") {
+      alert("⚠️ Attendance already marked today");
+    } else {
       console.error(error);
-      showMessage("reg-message", "Failed to mark attendance.", "error");
-      return;
+      alert("Failed to mark attendance");
     }
-
-    showMessage("reg-message", `✅ Attendance marked for ${user.name}`, "success");
-    console.log("Attendance data:", data);
-
-  } catch (err) {
-    console.error("Error marking attendance:", err);
-    showMessage("reg-message", "Error during attendance. Check console.", "error");
+    return;
   }
+
+  showProfile(user);
+  alert(`✅ Attendance marked for ${user.name}`);
+  loadDashboard();
 }
 
-// Attach buttons
-registerBtn.addEventListener("click", registerFace);
-attendanceBtn.addEventListener("click", markAttendance);
+// DASHBOARD
+async function loadDashboard() {
+  const table = document.getElementById("dashboard-body");
+  if (!table) return;
 
-// Init
-startCamera();
-loadModels();
+  const { data, error } = await supabase
+    .from("attendance")
+    .select("timestamp, users!attendance_user_id_fkey(name)");
+
+  if (error) return console.error(error);
+
+  table.innerHTML = "";
+
+  data.forEach((row) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${row.users?.name ?? "Unknown"}</td>
+      <td>${new Date(row.timestamp).toLocaleString()}</td>
+    `;
+    table.appendChild(tr);
+  });
+}
+
+// INIT: WAIT FOR DOM
+document.addEventListener("DOMContentLoaded", () => {
+  // Get elements
+  video = document.getElementById("video");
+  registerBtn = document.getElementById("registerBtn");
+  attendanceBtn = document.getElementById("attendanceBtn");
+
+  // Attach listeners
+  if (registerBtn) registerBtn.addEventListener("click", registerFace);
+  if (attendanceBtn) attendanceBtn.addEventListener("click", markAttendance);
+
+  // Start camera and load models
+  startCamera();
+  loadModels();
+
+  // Load dashboard
+  loadDashboard();
+});
