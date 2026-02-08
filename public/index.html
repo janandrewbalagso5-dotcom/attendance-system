@@ -16,7 +16,13 @@
 </head>
 
 <body>
-  <h2>Face + Fingerprint Attendance System</h2>
+
+    <!-- HEADER SECTION -->
+  <div class="header">
+    <h2>Attendance System
+  <button id="logoutBtn">Logout</button>
+  </h2>
+  </div>
 
   <!-- AUTH SECTION -->
   <div id="authSection">
@@ -30,19 +36,58 @@
 
   <!-- APP SECTION -->
   <div id="appSection" style="display:none;">
-    <button id="logoutBtn">Logout</button>
     <hr>
 
-    <!-- Registration Inputs -->
-    <h3>Register Face</h3>
-    <input id="studentId" placeholder="Student ID" /><br><br>
-    <input id="name" placeholder="Full Name" /><br><br>
-    <input id="major" placeholder="Major" /><br><br>
-    <button id="registerBtn">Register Face</button>
-    
-    <!-- Message / Profile -->
-    <div id="reg-message" class="info" style="margin-top:10px;"></div>
-    <div id="profile" style="margin-top:20px;"></div>
+  <!-- Registration Inputs -->
+<h3>Register Face</h3>
+
+<div class="form-group">
+  <label for="studentId">Student ID:</label><br>
+  <input id="studentId" placeholder="231-08-0007" /><br><br>
+</div>
+
+<div class="form-group">
+  <label for="name">Full Name:</label><br>
+  <input id="name" placeholder="Mark Zuckerberg" /><br><br>
+</div>
+
+<div class="form-group">
+  <label for="major">Major:</label><br>
+  <select id="major">
+    <option value="" disabled selected>Select Major</option>
+    <option value="BSIT">BSIT</option>
+    <option value="BSA">BSA</option>
+    <option value="BSBA">BSBA</option>
+    <option value="BSCRIM">BSCRIM</option>
+    <option value="COA">COA</option>
+    <option value="BSHM">BSHM</option>
+    <option value="BEED">BEED</option>
+  </select><br><br>
+</div>
+
+<button id="registerBtn">Register Face</button>
+
+<!-- Message / Profile -->
+<div id="reg-message" class="info" style="margin-top:10px;"></div>
+
+
+    <!-- PROFILE CARD -->
+    <div class="card" id="profileCard" hidden>
+      <img id="profilePhoto" class="profile-photo" />
+      <h3 id="profileName"></h3>
+      <p><b>ID:</b> <span id="profileStudentId"></span></p>
+      <p><b>Major:</b> <span id="profileMajor"></span></p>
+
+      <div class="actions">
+        <button id="editProfileBtn"> Edit Profile</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Registration Mode</h3>
+      <button id="newStudentBtn"> New Student</button>
+      <button id="existingStudentBtn"> Add Face to Existing</button>
+    </div>
 
     <hr>
 
@@ -50,7 +95,7 @@
     <video id="video" width="400" autoplay muted style="border:1px solid #000;"></video>
     <br>
     <button id="attendanceBtn">Mark Attendance</button>
-
+    
     <hr>
 
     <!-- Attendance Dashboard -->
@@ -60,6 +105,7 @@
         <tr>
           <th>Name</th>
           <th>Time</th>
+          <th>Status</th>
         </tr>
       </thead>
       <tbody id="dashboard-body"></tbody>
