@@ -1,52 +1,57 @@
 import { supabase } from "./supabase.js";
 
-// DOM ELEMENTS
 let video;
 let registerBtn;
 let attendanceBtn;
 
-// GLOBAL STATE
+let registrationMode = "new";
+let currentUser = null;
+
 let modelsLoaded = false;
 let registeredUsers = [];
 
-// FACE DETECTOR OPTIONS
+/* =======================
+   FACE DETECTOR OPTIONS
+======================= */
 const faceDetectorOptions = new faceapi.TinyFaceDetectorOptions({
   inputSize: 224,
   scoreThreshold: 0.5,
 });
 
-//START CAMERA
+/* =======================
+   CAMERA
+======================= */
 async function startCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: true });
     video.srcObject = stream;
     await video.play();
   } catch (err) {
-    console.error("Camera error:", err);
-    alert("Cannot access camera.");
+    console.error(err);
+    alert("Cannot access camera");
   }
 }
 
-// LOAD MODELS
+/* =======================
+   LOAD MODELS
+======================= */
 async function loadModels() {
-  try {
-    const MODEL_URL = "https://justadudewhohacks.github.io/face-api.js/models";
+  const MODEL_URL = "https://justadudewhohacks.github.io/face-api.js/models";
 
-    await Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-    ]);
+  await Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+  ]);
 
-    modelsLoaded = true;
-    await loadRegisteredUsers();
-    console.log("✅ Face-api models loaded");
-  } catch (err) {
-    console.error("❌ Failed to load models:", err);
-  }
+  modelsLoaded = true;
+  await loadRegisteredUsers();
+  console.log("✅ Face-api models loaded");
 }
 
-// LOAD REGISTERED USERS + DESCRIPTORS
+/* =======================
+   LOAD USERS + DESCRIPTORS
+======================= */
 async function loadRegisteredUsers() {
   const { data, error } = await supabase
     .from("users")
@@ -54,59 +59,71 @@ async function loadRegisteredUsers() {
 
   if (error) return console.error(error);
 
-  registeredUsers = data.map((u) => ({
+  registeredUsers = data.map(u => ({
     id: u.id,
-    studentId: u.student_id,
+    student_id: u.student_id, // KEEP CONSISTENT
     name: u.name,
     major: u.major,
     descriptors: u.face_images.map(
-      (f) => new Float32Array(f.descriptor)
-    ),
+      f => new Float32Array(f.descriptor)
+    )
   }));
 }
 
-// DUPLICATE FACE CHECK
-function isDuplicateFace(descriptor, threshold = 0.5) {
-  if (!registeredUsers.length) return false;
-
-  const matcher = new faceapi.FaceMatcher(
-    registeredUsers.map(
-      (u) => new faceapi.LabeledFaceDescriptors(u.studentId, u.descriptors)
-    ),
-    threshold
-  );
-
-  return matcher.findBestMatch(descriptor).label !== "unknown";
+/* =======================
+   FACE HELPERS
+======================= */
+function euclideanDistance(d1, d2) {
+  let sum = 0;
+  for (let i = 0; i < d1.length; i++) {
+    sum += (d1[i] - d2[i]) ** 2;
+  }
+  return Math.sqrt(sum);
 }
 
-// REGISTER FACE
+function isDuplicateFace(descriptor, threshold = 0.35) {
+  for (const user of registeredUsers) {
+    for (const saved of user.descriptors) {
+      const distance = euclideanDistance(descriptor, saved);
+      console.log("Distance:", distance);
+      if (distance < threshold) return true;
+    }
+  }
+  return false;
+}
+
+function capturePhoto() {
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  return canvas.toDataURL("image/jpeg");
+}
+
+/* =======================
+   LATE / ON-TIME LOGIC
+======================= */
+function getAttendanceStatus(date = new Date()) {
+  const hour = date.getHours();
+  const minute = date.getMinutes();
+  if (hour < 8) return "ON TIME";
+  if (hour === 8 && minute === 0) return "ON TIME";
+  return "LATE";
+}
+
+/* =======================
+   REGISTER FACE
+======================= */
 async function registerFace() {
-  if (!modelsLoaded) {
-    alert("Models are still loading");
-    return;
-  }
+  if (!modelsLoaded) return alert("Models still loading");
 
-  // Safe DOM check
-  const studentIdEl = document.getElementById("studentId");
-  const nameEl = document.getElementById("name");
-  const majorEl = document.getElementById("major");
+  const studentId = document.getElementById("studentId")?.value.trim();
+  const name = document.getElementById("name")?.value.trim();
+  const major = document.getElementById("major")?.value.trim();
 
-  if (!studentIdEl || !nameEl || !majorEl) {
-    alert("Registration form not found. Check HTML IDs.");
-    console.error("Missing inputs", { studentIdEl, nameEl, majorEl });
-    return;
-  }
+  if (!studentId || !name || !major)
+    return alert("Complete all fields");
 
-  const studentId = studentIdEl.value.trim();
-  const name = nameEl.value.trim();
-  const major = majorEl.value.trim();
-
-  if (!studentId || !name || !major) {
-    alert("Please complete all fields");
-    return;
-  }
-
-  // Detect face
   const detection = await faceapi
     .detectSingleFace(video, faceDetectorOptions)
     .withFaceLandmarks()
@@ -114,135 +131,184 @@ async function registerFace() {
 
   if (!detection) return alert("No face detected");
 
-  // Duplicate prevention
-  if (isDuplicateFace(detection.descriptor)) {
-    alert("This face is already registered");
-    return;
+  if (isDuplicateFace(detection.descriptor))
+    return alert("This face is already registered");
+
+  let user;
+
+  // ADD FACE TO EXISTING STUDENT
+  if (registrationMode === "addFace") {
+    const { data } = await supabase
+      .from("users")
+      .select("id, student_id, name, major")
+      .eq("student_id", studentId)
+      .single();
+
+    if (!data) return alert("Student not found");
+    user = data;
   }
 
-  // Insert user
-  const { data: user, error } = await supabase
-    .from("users")
-    .insert({ student_id: studentId, name, major })
-    .select()
-    .single();
+  // NEW STUDENT
+  else {
+    const { data, error } = await supabase
+      .from("users")
+      .insert({ student_id: studentId, name, major })
+      .select("id, student_id, name, major")
+      .single();
 
-  if (error) return alert(error.message);
+    if (error) return alert(error.message);
+    user = data;
+  }
 
-  // Insert face descriptor
+  const photo = capturePhoto();
+
   await supabase.from("face_images").insert({
     user_id: user.id,
     descriptor: Array.from(detection.descriptor),
+    photo
   });
 
-  // Show profile
-  showProfile(user);
-
-  // Refresh registered users
+  currentUser = user;
+  showProfile(user, photo);
   await loadRegisteredUsers();
 
-  alert("✅ Face registered successfully");
+  alert(" Face registered successfully");
 }
 
-// SHOW STUDENT PROFILE
-function showProfile(user) {
-  const div = document.getElementById("profile");
-  if (!div) return;
+/* =======================
+   PROFILE CARD
+======================= */
+function showProfile(user, photo = null) {
+  const card = document.getElementById("profileCard");
+  if (!card) return;
 
-  div.innerHTML = `
-    <h3>Student Profile</h3>
-    <p><b>ID:</b> ${user.student_id}</p>
-    <p><b>Name:</b> ${user.name}</p>
-    <p><b>Major:</b> ${user.major}</p>
-  `;
-}
+  card.hidden = false;
+  document.getElementById("profileName").innerText = user.name;
+  document.getElementById("profileStudentId").innerText = user.student_id;
+  document.getElementById("profileMajor").innerText = user.major;
 
-// MARK ATTENDANCE
-async function markAttendance() {
-  if (!modelsLoaded) {
-    showMessage("reg-message", "Models still loading", "info");
-    return;
+  if (photo) {
+    document.getElementById("profilePhoto").src = photo;
   }
+}
+
+/* =======================
+   ATTENDANCE
+======================= */
+async function markAttendance() {
+  if (!modelsLoaded) return alert("Models still loading");
 
   const detection = await faceapi
     .detectSingleFace(video, faceDetectorOptions)
-    .withFaceLandmarks()
+    .withFaceLandmarks()  
     .withFaceDescriptor();
 
-  if (!detection) return alert("No face detected");
+  if (!detection) {
+    hideProfile();
+    return alert("No face detected");
+  }
 
-  // Match face
   const matcher = new faceapi.FaceMatcher(
     registeredUsers.map(
-      (u) => new faceapi.LabeledFaceDescriptors(u.studentId, u.descriptors)
+      u => new faceapi.LabeledFaceDescriptors(
+        u.student_id, 
+        u.descriptors
+      )
     ),
     0.6
   );
 
   const match = matcher.findBestMatch(detection.descriptor);
-  if (match.label === "unknown") return alert("Face not recognized");
-
-  const user = registeredUsers.find((u) => u.studentId === match.label);
-  if (!user) return;
-
-  // Insert attendance (DB enforces 1/day)
-  const { error } = await supabase.from("attendance").insert({
-    user_id: user.id,
-  });
-
-  if (error) {
-    if (error.code === "23505") {
-      alert("⚠️ Attendance already marked today");
-    } else {
-      console.error(error);
-      alert("Failed to mark attendance");
-    }
-    return;
+ if (match.label === "unknown") {
+    hideProfile();
+    return alert("Face not recognized");
   }
 
+  const user = registeredUsers.find(
+    u => u.student_id === match.label
+  );
+
+  if (!user) return alert("User not found");
+
+  const status = getAttendanceStatus(new Date());
+
+  const { error } = await supabase
+    .from("attendance")
+    .insert({ user_id: user.id });
+
+  if (error?.code === "23505")
+    return alert(" Attendance already marked today");
+
   showProfile(user);
-  alert(`✅ Attendance marked for ${user.name}`);
+  alert(` Attendance marked for ${user.name}`);
   loadDashboard();
 }
 
-// DASHBOARD
+// Dashboard
 async function loadDashboard() {
   const table = document.getElementById("dashboard-body");
   if (!table) return;
 
   const { data, error } = await supabase
     .from("attendance")
-    .select("timestamp, users!attendance_user_id_fkey(name)");
+    .select("timestamp, status, users(*)");
 
   if (error) return console.error(error);
 
   table.innerHTML = "";
 
-  data.forEach((row) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${row.users?.name ?? "Unknown"}</td>
-      <td>${new Date(row.timestamp).toLocaleString()}</td>
-    `;
-    table.appendChild(tr);
+  data.forEach(row => {
+    const timePH = new Date(row.timestamp + "Z").toLocaleString("en-PH", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true
+    });
+
+    table.innerHTML += `
+      <tr>
+        <td>${row.users?.name ?? "Unknown"}</td>
+        <td>${timePH}</td>
+        <td>
+          <span class="${row.status === "LATE" ? "late" : "ontime"}">
+            ${row.status}
+          </span>
+        </td>
+      </tr>`;
   });
 }
 
-// INIT: WAIT FOR DOM
+/* =======================
+   MODE BUTTONS
+======================= */
+document.getElementById("newStudentBtn")?.addEventListener("click", () => {
+  registrationMode = "new";
+  alert("New Student Mode");
+});
+
+document.getElementById("existingStudentBtn")?.addEventListener("click", () => {
+  registrationMode = "addFace";
+  alert("Add Face Mode");
+});
+
+/* =======================
+   INIT
+======================= */
 document.addEventListener("DOMContentLoaded", () => {
-  // Get elements
   video = document.getElementById("video");
   registerBtn = document.getElementById("registerBtn");
   attendanceBtn = document.getElementById("attendanceBtn");
 
-  // Attach listeners
-  if (registerBtn) registerBtn.addEventListener("click", registerFace);
-  if (attendanceBtn) attendanceBtn.addEventListener("click", markAttendance);
+  registerBtn?.addEventListener("click", registerFace);
+  attendanceBtn?.addEventListener("click", markAttendance);
 
-  // Start camera and load models
   startCamera();
   loadModels();
-
-  // Load dashboard
   loadDashboard();
+
+  setInterval(loadDashboard, 30000);
 });
